@@ -64,4 +64,8 @@ public class StructrUploadServiceConnection implements ServiceConnection {
         if(isBound)
             service.dismissUpload(fileId);
     }
+
+    public boolean serviceIsActive(){
+        return service.isActive();
+    }
 }

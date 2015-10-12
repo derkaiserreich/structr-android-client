@@ -11,6 +11,7 @@ import android.os.SystemClock;
 import android.support.v4.app.NotificationCompat;
 
 import java.io.FileNotFoundException;
+import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.UUID;
 
@@ -95,10 +96,10 @@ public class StructrUploadService extends IntentService{
     private final IBinder binder = new StructrUploadServiceBinder(this);
 
     private ArrayList<StructrUploadFile> uploadFileList = null;
+    private static boolean isActive = false;
 
     private NotificationCompat.Builder builder = null;
     private boolean useProgressAsNotificationText = false;
-
 
     public StructrUploadService(){
         super(StructrUploadService.class.getName());
@@ -203,16 +204,21 @@ public class StructrUploadService extends IntentService{
 
                         int tries = 0;
                         int delay = 1000;
+                        isActive = true;
+
                         while(tries < 3 && !file.isCanceled()){
                             tries++;
                             try{
                                 structrFileUploader.doUpload(file);
                                 break;
                             }catch(Throwable t){
-                                if(tries >= 3 && !file.isCanceled()){
+                                if((tries >= 3 || !(t instanceof SocketTimeoutException)) && !file.isCanceled()){
                                     broadcastError(file.getFileId(), t);
+                                    isActive = false;
+                                    break;
                                 }
                                 else if(file.isCanceled()){
+                                    isActive = false;
                                     broadcastCanceled(file.getFileId());
                                 }
                                 else{
@@ -278,6 +284,10 @@ public class StructrUploadService extends IntentService{
                 }
             }
         }
+    }
+
+    public static boolean isActive(){
+        return isActive;
     }
 
     public void broadcastProgress(int fileId, int progress) {

@@ -291,7 +291,7 @@ public abstract class StructrObject implements Serializable {
         try {
             conn = (HttpURLConnection) new URL(path).openConnection();
             conn.setRequestMethod("GET");
-            conn.setRequestProperty("X-USer", StructrConnector.getUserName());
+            conn.setRequestProperty("X-User", StructrConnector.getUserName());
             conn.setRequestProperty("X-Password", StructrConnector.getPassword());
 
             String response = "";
@@ -313,7 +313,6 @@ public abstract class StructrObject implements Serializable {
 				}
 
 			} else {
-
 				throw new StructrException(conn.getResponseCode(), conn.getResponseMessage(), response);
 			}
 
@@ -335,9 +334,6 @@ public abstract class StructrObject implements Serializable {
 
 	private static int create(String path, StructrObject entity, Type type) throws Throwable {
 
-		/*final AndroidHttpClient httpClient = getHttpClient();
-		final HttpPost httpPost            = new HttpPost(path);
-		HttpResponse response              = null;*/
 		Throwable throwable                 = null;
 		String response                     = "";
         int responseCode                    = 0;
@@ -402,7 +398,6 @@ public abstract class StructrObject implements Serializable {
 	private static int store(String path, StructrObject entity, Type type) throws Throwable {
 
 		Throwable throwable                 = null;
-        String response                     = "";
 		int responseCode                    = 0;
 
 		try {
@@ -423,14 +418,6 @@ public abstract class StructrObject implements Serializable {
             wr.write(buf.toString());
             wr.flush();
 
-            //Read the response message
-            InputStreamReader isr = new InputStreamReader(conn.getInputStream());
-            BufferedReader br = new BufferedReader(isr);
-            String line = "";
-            while((line = br.readLine()) != null){
-                response+=line;
-            }
-
 			responseCode = conn.getResponseCode();
 
 		} catch(Throwable t) {
@@ -450,7 +437,6 @@ public abstract class StructrObject implements Serializable {
 
 	private static int delete(String path) throws Throwable {
 
-		String response                  = "";
 		Throwable throwable              = null;
 		int responseCode                 = 0;
 
@@ -458,16 +444,7 @@ public abstract class StructrObject implements Serializable {
             conn = (HttpURLConnection) new URL(path).openConnection();
             conn.setRequestMethod("DELETE");
             conn.setRequestProperty("X-User", StructrConnector.getUserName());
-            conn.setRequestProperty("X-Passoword", StructrConnector.getPassword());
-
-            //Read the response message
-            InputStreamReader isr = new InputStreamReader(conn.getInputStream());
-            BufferedReader br = new BufferedReader(isr);
-            String line = "";
-            while((line = br.readLine()) != null){
-                response+=line;
-            }
-
+            conn.setRequestProperty("X-Password", StructrConnector.getPassword());
 			responseCode = conn.getResponseCode();
 
 		} catch(Throwable t) {

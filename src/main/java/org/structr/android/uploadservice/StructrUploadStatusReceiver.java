@@ -105,7 +105,7 @@ public abstract class StructrUploadStatusReceiver extends BroadcastReceiver {
     /**
      * Every time the service is being started with the startService() method, the service will add a
      * StructrUploadFile to its uploadList and will broadcast the updated List. The calling activity can implement
-     * all functions for the upload handling. You can use the {@link StructrUploadFileListAdapter} when you don't to implement
+     * all functions for the upload handling. You can use the {@link StructrUploadFileListAdapter} when you don't want to implement
      * your own handling. See {@link StructrUploadServiceConnection} for more information
      * about the communication with the StructrUploadService.
      * @param files

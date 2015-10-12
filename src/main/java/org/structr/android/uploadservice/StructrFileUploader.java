@@ -173,13 +173,17 @@ public class StructrFileUploader {
         fileSize = file.length();
         uploadedBytes = 0;
         buffer = new byte[maxBufferSize];
+        int progress = 0;
+        int checkProgress;
 
         //Write File
         while ((readBytes = fileInputStream.read(buffer, 0, maxBufferSize)) > 0 && (!fileToUpload.isCanceled())) {
+            checkProgress = progress;
             output.write(buffer, 0, readBytes);
             uploadedBytes += readBytes;
-            int i = (int) (uploadedBytes * 100 / fileSize);
-            uploadService.broadcastProgress(fileToUpload.getFileId(), i);
+            progress = (int) (uploadedBytes * 100 / fileSize);
+            if(checkProgress < progress)
+                uploadService.broadcastProgress(fileToUpload.getFileId(), progress);
         }
 
         if(!fileToUpload.isCanceled()){
