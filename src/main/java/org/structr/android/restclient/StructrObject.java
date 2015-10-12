@@ -18,23 +18,21 @@
  */
 package org.structr.android.restclient;
 
-import android.net.http.AndroidHttpClient;
+
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.Expose;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.io.Serializable;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.Collections;
 import java.util.List;
-import org.apache.http.HttpRequest;
-import org.apache.http.HttpResponse;
-import org.apache.http.client.methods.HttpDelete;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.client.methods.HttpPut;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.util.EntityUtils;
 
 /**
  * An abstract base class for REST entities on a structr server. This class encapsulates everything
@@ -47,7 +45,8 @@ import org.apache.http.util.EntityUtils;
 public abstract class StructrObject implements Serializable {
 
 	private static final Gson gson = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().setDateFormat("yyyy-MM-dd'T'HH:mm:ssZ").create();
-	private static AndroidHttpClient client = null;
+
+	private static HttpURLConnection conn = null;
 
 	@Expose
 	private String id = null;
@@ -275,29 +274,7 @@ public abstract class StructrObject implements Serializable {
 		return null;
 	}
 
-	/**
-	 * Shuts down the the http client that is used for the database connection.
-	 */
-	public static void shutdownDatabaseConnection() {
 
-		if (client != null) {
-			client.getConnectionManager().shutdown();
-			client.close();
-			client = null;
-		}
-	}
-
-	/**
-	 * @return the http client that is used to connect to the REST server.
-	 */
-	public static AndroidHttpClient getHttpClient() {
-
-		if (client == null) {
-			client = AndroidHttpClient.newInstance("structr REST client");
-		}
-
-		return client;
-	}
 
 	// ----- private methods -----
 	private String getEntityName() {
@@ -308,21 +285,27 @@ public abstract class StructrObject implements Serializable {
 	// ----- private static methods -----
 	private static <T extends StructrObject> T load(final Class<T> type, final String path) throws Throwable {
 
-		final AndroidHttpClient httpClient = getHttpClient();
-		final HttpGet httpGet              = new HttpGet(path);
-		HttpResponse response              = null;
-		T result                           = null;
-		Throwable throwable                = null;
+        T result                           = null;
+        Throwable throwable                = null;
 
-		configureRequest(httpGet);
+        try {
+            conn = (HttpURLConnection) new URL(path).openConnection();
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("X-USer", StructrConnector.getUserName());
+            conn.setRequestProperty("X-Password", StructrConnector.getPassword());
 
-		try {
+            String response = "";
 
-			response = httpClient.execute(httpGet);
+			if (conn.getResponseCode() == 200) {
 
-			if (response.getStatusLine().getStatusCode() == 200) {
+                InputStreamReader isr = new InputStreamReader(conn.getInputStream());
+                BufferedReader br = new BufferedReader(isr);
+                String line = "";
+                while((line = br.readLine()) != null){
+                    response+=line;
+                }
 
-				StructrEntityResult<T> entityResult = (StructrEntityResult<T>)gson.fromJson(EntityUtils.toString(response.getEntity()), getEntityTypeToken(type));
+				StructrEntityResult<T> entityResult = (StructrEntityResult<T>)gson.fromJson(response, getEntityTypeToken(type));
 				if (entityResult != null) {
 
 					result = entityResult.getResult();
@@ -331,19 +314,16 @@ public abstract class StructrObject implements Serializable {
 
 			} else {
 
-				throw new StructrException(response.getStatusLine().getStatusCode(), response.getStatusLine().getReasonPhrase(), EntityUtils.toString(response.getEntity()));
+				throw new StructrException(conn.getResponseCode(), conn.getResponseMessage(), response);
 			}
 
 		} catch(Throwable t) {
 
 			throwable = t;
-			httpGet.abort();
 
 		} finally {
-
-			if (response != null) {
-				response.getEntity().consumeContent();
-			}
+            if(conn != null)
+                conn.disconnect();
 		}
 
 		if (throwable != null) {
@@ -355,27 +335,44 @@ public abstract class StructrObject implements Serializable {
 
 	private static int create(String path, StructrObject entity, Type type) throws Throwable {
 
-		final AndroidHttpClient httpClient = getHttpClient();
+		/*final AndroidHttpClient httpClient = getHttpClient();
 		final HttpPost httpPost            = new HttpPost(path);
-		HttpResponse response              = null;
-		Throwable throwable                = null;
-		int responseCode                   = 0;
+		HttpResponse response              = null;*/
+		Throwable throwable                 = null;
+		String response                     = "";
+        int responseCode                    = 0;
 
 		try {
+            //Cast the entity to Json
 			StringBuilder buf = new StringBuilder();
 			gson.toJson(entity, type, buf);
 
-			StringEntity body = new StringEntity(buf.toString(), "UTF-8");
-			body.setContentType("application/json");
-			httpPost.setEntity(body);
+            //Configure the Connection
+            conn = (HttpURLConnection) new URL(path).openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoInput(true);
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setRequestProperty("X-User", StructrConnector.getUserName());
+            conn.setRequestProperty("X-Password", StructrConnector.getPassword());
 
-			configureRequest(httpPost);
+            //Write Json
+            OutputStreamWriter wr = new OutputStreamWriter(conn.getOutputStream());
+            wr.write(buf.toString());
+            wr.flush();
 
-			response = httpClient.execute(httpPost);
-			responseCode = response.getStatusLine().getStatusCode();
+           	responseCode = conn.getResponseCode();
 			if (responseCode == 201) {
 
-				String location = response.getFirstHeader("Location").getValue();
+                //Read the response message
+                InputStreamReader isr = new InputStreamReader(conn.getInputStream());
+                BufferedReader br = new BufferedReader(isr);
+                String line = "";
+                while((line = br.readLine()) != null){
+                    response+=line;
+                }
+
+				String location = conn.getHeaderField("Location");
 				String newId = getIdFromLocation(location);
 
 				// only set ID of it's not already set
@@ -385,15 +382,14 @@ public abstract class StructrObject implements Serializable {
 
 			} else {
 
-				throw new StructrException(response.getStatusLine().getStatusCode(), response.getStatusLine().getReasonPhrase(), EntityUtils.toString(response.getEntity()));
+				throw new StructrException(conn.getResponseCode(),conn.getResponseMessage(), response);
 			}
 
 		} catch(Throwable t) {
 			throwable = t;
 		} finally {
-			if (response != null) {
-				response.getEntity().consumeContent();
-			}
+            if(conn != null)
+                conn.disconnect();
 		}
 
 		if (throwable != null) {
@@ -405,35 +401,44 @@ public abstract class StructrObject implements Serializable {
 
 	private static int store(String path, StructrObject entity, Type type) throws Throwable {
 
-		final AndroidHttpClient httpClient = getHttpClient();
-		final HttpPut httpPut              = new HttpPut(path);
-		HttpResponse response              = null;
-		Throwable throwable                = null;
-		int responseCode                   = 0;
+		Throwable throwable                 = null;
+        String response                     = "";
+		int responseCode                    = 0;
 
 		try {
 			StringBuilder buf = new StringBuilder();
 			gson.toJson(entity, type, buf);
 
-			StringEntity body = new StringEntity(buf.toString());
-			body.setContentType("application/json");
-			httpPut.setEntity(body);
+            //Configure the Connection
+            conn = (HttpURLConnection) new URL(path).openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoInput(true);
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setRequestProperty("X-User", StructrConnector.getUserName());
+            conn.setRequestProperty("X-Password", StructrConnector.getPassword());
 
-			configureRequest(httpPut);
+            //Write Json
+            OutputStreamWriter wr = new OutputStreamWriter(conn.getOutputStream());
+            wr.write(buf.toString());
+            wr.flush();
 
-			response = httpClient.execute(httpPut);
-			responseCode = response.getStatusLine().getStatusCode();
+            //Read the response message
+            InputStreamReader isr = new InputStreamReader(conn.getInputStream());
+            BufferedReader br = new BufferedReader(isr);
+            String line = "";
+            while((line = br.readLine()) != null){
+                response+=line;
+            }
+
+			responseCode = conn.getResponseCode();
 
 		} catch(Throwable t) {
-
 			throwable = t;
-			httpPut.abort();
 
 		} finally {
-
-			if (response != null) {
-				response.getEntity().consumeContent();
-			}
+            if(conn != null)
+                conn.disconnect();
 		}
 
 		if (throwable != null) {
@@ -445,28 +450,33 @@ public abstract class StructrObject implements Serializable {
 
 	private static int delete(String path) throws Throwable {
 
-		final AndroidHttpClient httpClient = getHttpClient();
-		final HttpDelete delete            = new HttpDelete(path);
-		HttpResponse response              = null;
-		Throwable throwable                = null;
-		int responseCode                   = 0;
-
-		configureRequest(delete);
+		String response                  = "";
+		Throwable throwable              = null;
+		int responseCode                 = 0;
 
 		try {
-			response = httpClient.execute(delete);
-			responseCode = response.getStatusLine().getStatusCode();
+            conn = (HttpURLConnection) new URL(path).openConnection();
+            conn.setRequestMethod("DELETE");
+            conn.setRequestProperty("X-User", StructrConnector.getUserName());
+            conn.setRequestProperty("X-Passoword", StructrConnector.getPassword());
+
+            //Read the response message
+            InputStreamReader isr = new InputStreamReader(conn.getInputStream());
+            BufferedReader br = new BufferedReader(isr);
+            String line = "";
+            while((line = br.readLine()) != null){
+                response+=line;
+            }
+
+			responseCode = conn.getResponseCode();
 
 		} catch(Throwable t) {
 
 			throwable = t;
-			delete.abort();
 
 		} finally {
-
-			if (response != null) {
-				response.getEntity().consumeContent();
-			}
+            if(conn != null)
+                conn.disconnect();
 		}
 
 		if (throwable != null) {
@@ -478,22 +488,28 @@ public abstract class StructrObject implements Serializable {
 
 	private static <T extends StructrObject> List<T> list(final Class<T> type, final String path) throws Throwable {
 
-		final AndroidHttpClient httpClient = getHttpClient();
-		final HttpGet httpGet              = new HttpGet(path);
-
-		configureRequest(httpGet);
-
-		List<T> result        = null;
-		HttpResponse response = null;
-		Throwable throwable   = null;
+        String response         = "";
+		List<T> result          = null;
+        Throwable throwable     = null;
 
 		try {
+            conn = (HttpURLConnection) new URL(path).openConnection();
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("X-User", StructrConnector.getUserName());
+            conn.setRequestProperty("X-Password", StructrConnector.getPassword());
+            conn.setRequestProperty("Accept-Charset", "UTF-8");
 
-			response = httpClient.execute(httpGet);
+            //Read the response message
+            InputStreamReader isr = new InputStreamReader(conn.getInputStream());
+            BufferedReader br = new BufferedReader(isr);
+            String line = "";
+            while((line = br.readLine()) != null){
+                response+=line;
+            }
 
-			if (response.getStatusLine().getStatusCode() == 200) {
+			if (conn.getResponseCode() == 200) {
 
-				StructrCollectionResult<T> collectionResult = (StructrCollectionResult<T>)gson.fromJson(EntityUtils.toString(response.getEntity()), getCollectionTypeToken(type));
+				StructrCollectionResult<T> collectionResult = (StructrCollectionResult<T>) gson.fromJson(response, getCollectionTypeToken(type));
 				if (collectionResult != null) {
 
 					result = collectionResult.getResult();
@@ -509,19 +525,16 @@ public abstract class StructrObject implements Serializable {
 
 			} else {
 
-				throw new StructrException(response.getStatusLine().getStatusCode(), response.getStatusLine().getReasonPhrase(), EntityUtils.toString(response.getEntity()));
+				throw new StructrException(conn.getResponseCode(), conn.getResponseMessage(), response);
 			}
 
 		} catch(Throwable t) {
 
-			throwable = t;
-			httpGet.abort();
+            throwable = t;
 
 		} finally {
-
-			if (response != null) {
-				response.getEntity().consumeContent();
-			}
+            if(conn != null)
+                conn.disconnect();
 		}
 
 		if (throwable != null) {
@@ -538,8 +551,10 @@ public abstract class StructrObject implements Serializable {
 
 		path.append(base);
 		if (!base.endsWith("/")) {
-			path.append("/");
+			path.append("/rest/");
 		}
+		else
+        path.append("rest/");
 		path.append(url);
 
 		for(Object o : params) {
@@ -558,11 +573,6 @@ public abstract class StructrObject implements Serializable {
 		return path.toString();
 	}
 
-	private static void configureRequest(HttpRequest request) {
-
-		request.addHeader("X-User", StructrConnector.getUserName());
-		request.addHeader("X-Password", StructrConnector.getPassword());
-	}
 
 	private static String getIdFromLocation(String location) {
 		int pos = location.lastIndexOf("/");
@@ -635,7 +645,6 @@ public abstract class StructrObject implements Serializable {
 	}
 
 	private class StructrCollectionResult<T extends StructrObject> {
-
 		@Expose
 		List<T> result = null;
 
